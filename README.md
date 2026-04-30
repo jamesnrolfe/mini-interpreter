@@ -439,21 +439,20 @@ else if (op == MCMP) { ax = memcmp((char *)sp[2], (char *)sp[1], *sp);}
 We have no written a primitive assembly language that we can write programs in. For example
 
 ```c
+int i = 0;
+text[i++] = IMM;
+text[i++] = 10;
+text[i++] = PUSH;
+text[i++] = IMM;
+text[i++] = 20;
+text[i++] = ADD;
+text[i++] = PUSH;
+text[i++] = EXIT;
 
-    int i = 0;
-    text[i++] = IMM;
-    text[i++] = 10;
-    text[i++] = PUSH;
-    text[i++] = IMM;
-    text[i++] = 20;
-    text[i++] = ADD;
-    text[i++] = PUSH;
-    text[i++] = EXIT;
+pc = text;
 
-    pc = text;
-
-    program();
-    return eval();
+program();
+return eval();
 ```
 
 returns 
