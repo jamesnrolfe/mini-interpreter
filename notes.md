@@ -45,7 +45,7 @@ void next() {
 }
 
 void expression(int level) {
-    // do nothing
+// do nothing
 }
 
 void program() {
@@ -185,4 +185,119 @@ signed allocate_virtual_memory(int poolsize) {
 }
 ```
 
+We have an issue here where we have `malloc`ed some space for this stuff, but the computer has given us no guarantee that this is empty - it has just found a load of space for us to use that isn't being used by anything else. Previous data could be left here.
 
+There are two ways to deal with this:
+1. `malloc() + memset()`: We can allocate space with `malloc` and then wipe it with `memset`.
+2. `calloc()`: We could just use `calloc` in place of `malloc`, which does the previous step in one function call. We will use this here, and so all `malloc`s will now become `calloc`s.
+
+#### Registers
+
+Registers store the running state of computers. Our VM will use 4:
+
+1. `PC`: Program counter - stores a memory address that holds the **next** instruction to run.
+2. `SP`: Stack pointer - always points to the *top* of the stack. Notice that the stack grows from high adress to low address so that when we push a new element to the stack, `SP` decreases.
+3. `BP`: Base pointer - points to some elements in the stack, used for funciton calls.
+4. `AX`: A general register used to store the result of an instruction.
+
+Let's add some code to the global area:
+
+```c
+int *pc, *bp, *sp, ax, cycle; // virtual machine registers
+```
+
+and create a function to initialise them:
+
+```c
+void init_registers(int poolsize) {
+    // base pointer and stack pointer both initially point to top of stack
+    bp = sp = (int *)((int)stack + poolsize);
+    ax = 0;
+}
+```
+`PC` should point to the `main` function of the program to be interpreted, but we don't have code generation yet, so we can skip.
+
+### Instruction Set
+
+The instruction set is a list of instructions our CPU can understand. We will design based on a simplified version of the x86 instructions set.
+
+We start by adding an ENUM with the following instructions. 
+
+```c
+// instructions
+enum { LEA ,IMM ,JMP ,CALL,JZ  ,JNZ ,ENT ,ADJ ,LEV ,LI  ,LC  ,SI  ,SC  ,PUSH,
+       OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,
+       OPEN,READ,CLOS,PRTF,MALC,MSET,MCMP,EXIT };
+```
+
+Let's go through some of these.
+
+#### MOV
+
+`MOV` moves data into registers or memory, sort of like assignment in C. There are two arguments in x86's `MOV`: `MOV dest source`. `source` can be a number, a register or a memory address.
+
+We won't follow x86 exactly. On the one hand, our VM has only one general register `AX`, and on the other hand it is hard to determine the type of the arguments (is it a number, a reg or a MA?), so we tear `MOV` into 5 pieces:
+
+1. `IMM <num>`: put immediate `<num>` into register `AX`.
+2. `LC`: load character into `AX` from a memory address which is stored in `AX` before execution.
+3. `LI`: like `LC` but with integer.
+4. `SC`: load the character in `AX` into the memory whose address is stored on the top of the stack.
+5. `SI`: like `SC` but with integer.
+
+By separating this, we reduce the complexity a lot. Let's implement this in `eval`:
+
+```c
+void eval() {
+    int op, *tmp;
+    while (1) {
+        op = *pc++; // get next operation code
+        if (op == IMM)       {ax = *pc++;}                                     // load immediate value to ax
+        else if (op == LC)   {ax = *(char *)ax;}                               // load character to ax, address in ax
+        else if (op == LI)   {ax = *(int *)ax;}                                // load integer to ax, address in ax
+        else if (op == SC)   {ax = *(char *)*sp++ = ax;}                       // save character to address, value in ax, address on stack
+        else if (op == SI)   {*(int *)*sp++ = ax;}                             // save integer to address, value in ax, address on stack
+    }
+
+    ...
+    return 0;
+}
+```
+
+##### Syntax notes
+
+So this syntax is hard to follow. Let's go through whats happening here.
+```c
+op = *pc++
+```
+
+is a common idiom in C. It does two things:
+
+1. `*pc` (dereference): It looks at the memory address `pc` is currently pointing to, and reads the value stored there. This is saved into `op`.
+2. `++` (*post*-increment): It then moves the `pc` pointer forward to the next memory location.
+
+> If the `++` came before, e.g. `++*pc` it would increment first, and then read.
+
+Then, for our `IMM` instruction, we effectively do the exact same thing, loading the value into `ax`.
+
+Then, for `LC` (load character), we have 
+```c
+ax = *(char *)ax;
+```
+
+At this point, `ax` contains a number, and we want to treat that number as a memory address.
+1. `(char *)ax` (typecast): This tells the compiler to pretend `ax` is a pointer to a single character (1B). 
+2. `*(...)` (dereference): Go to the memory address we just made, and read the character stored there.
+3. `ax = ...`: save that character back to `ax`.
+
+`LI` is clearly very similar.
+
+`SC` is more complicated. We have 
+```c
+ax = *(char *)*sp++ = ax;
+```
+1. `*sp++`: just like `*pc++`, dereference and post-increment. This reads the value off the top of the stack, and moves the stack pointer down (effectively popping a character off the stack). In this VM design, the value popped off is the target memory address. Let's call this `TARGET_ADDRESS`.
+2. `(char *)TARGET_ADDRESS`: cast that popped address to a character pointer.
+3. `*(char *)TARGET_ADDRESS = ax`: dereference the target address and write the value of `ax` into it. Because we cast it as a `char *`, we only are able to write 1 byte to memory.
+4. `ax = ...`: In C, `A = B = C` means assign C to B, *then* assign B to A. Here, the VM writes `ax` to memory, then assigns `ax` back to itself (which does nothing, but ensures `ax` holds the correct value going forward).
+
+`SI` is very similar, but doesn't need to reassign `ax` at the end.
