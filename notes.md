@@ -118,3 +118,71 @@ The programs usable memory is partitioned into several segments:
 1. `text`: for storing code (instructions)
 2. `data`: for storing initialised data e.g. `int i = 10;` will need to use this segment
 3. `bss`: for storing uninitialised data e.g. `int i[1000];` doesn't need to occupy `1000*4` bytes, because the actual values in the array don't matter, so we can store them here to save space 
+4. `stack`: used for handling the states of function called, such as calling frames and local variables of a function
+5. `heap`: used to allocate memory dynamically for the program
+
+An example layout is
+
+```
++------------------+
+|    stack   |     |      high address
+|    ...     v     |
+|                  |
+|                  |
+|                  |
+|                  |
+|    ...     ^     |
+|    heap    |     |
++------------------+
+| bss  segment     |
++------------------+
+| data segment     |
++------------------+
+| text segment     |      low address
++------------------+
+```
+
+Our virtual machine will be very simple:
+- We dont give a shit about `bss` or `heap`. 
+- Our interpreter won't support the initialisation of data, so we can merge the `data` and `bss` segments.
+- We only use `data` for storing string literals.
+
+> We can feel justified in dropping the heap because our computer is running this VM program, which has given it a heap itself. In this sense, we have one anyway, but generally we would need to include it.
+
+We will add the following code to the global area:
+
+```c
+int *text,          // text segment
+    *old_text,      // for dump text segment
+    *stack;         // stack 
+char *data;         // data segment
+```
+
+> Note the `int` here - we should actually use `unsigned` because we store unsigned data, like pointers, in the `text` segment. Since we want to bootstrap our interpreter, so we don't want to introduce unsigned. Finally, the `data` is `char *` because we use it to store string literals only.
+
+> **Bootstrapping**: a compiler that compiles itself.
+
+So now we can allocate this memory. We will turn this into a function called `allocate_virtual_memory(int poolsize)`:
+
+```c
+signed allocate_virtual_memory(int poolsize) {
+    if (!(text = old_text = malloc(poolsize))) {
+        printf("could not malloc(%lld) for text area\n", poolsize);
+        return -1;
+    }
+
+    if (!(data = malloc(poolsize))) {
+        printf("could not malloc(%lld) for data area", poolsize);
+        return -1;
+    }
+
+    if (!(stack = malloc(poolsize))) {
+        printf("could not malloc(%lld) for stack area", poolsize);
+        return -1;
+    }
+
+    return 1;
+}
+```
+
+
