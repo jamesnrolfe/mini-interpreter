@@ -43,9 +43,9 @@ int eval() {
 signed read_file_to_buffer(int fd, int poolsize) {
     int i;
 
-    // if malloc return null pointer fail
-    if (!(src = old_src = malloc(poolsize))) {
-        printf("could not malloc(%lld) for source area\n", poolsize);
+    // if calloc return null pointer fail
+    if (!(src = old_src = calloc(poolsize))) {
+        printf("could not calloc(%lld) for source area\n", poolsize);
         return -1;
     }
 
@@ -61,18 +61,18 @@ signed read_file_to_buffer(int fd, int poolsize) {
 
 /* Allocate memory for the text, data and stack area, of size `poolsize`. */
 signed allocate_virtual_memory(int poolsize) {
-    if (!(text = old_text = malloc(poolsize))) {
-        printf("could not malloc(%lld) for text area\n", poolsize);
+    if (!(text = old_text = calloc(poolsize))) {
+        printf("could not calloc(%lld) for text area\n", poolsize);
         return -1;
     }
 
-    if (!(data = malloc(poolsize))) {
-        printf("could not malloc(%lld) for data area", poolsize);
+    if (!(data = calloc(poolsize))) {
+        printf("could not calloc(%lld) for data area", poolsize);
         return -1;
     }
 
-    if (!(stack = malloc(poolsize))) {
-        printf("could not malloc(%lld) for stack area", poolsize);
+    if (!(stack = calloc(poolsize))) {
+        printf("could not calloc(%lld) for stack area", poolsize);
         return -1;
     }
 
