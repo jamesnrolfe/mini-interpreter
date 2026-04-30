@@ -301,3 +301,169 @@ ax = *(char *)*sp++ = ax;
 4. `ax = ...`: In C, `A = B = C` means assign C to B, *then* assign B to A. Here, the VM writes `ax` to memory, then assigns `ax` back to itself (which does nothing, but ensures `ax` holds the correct value going forward).
 
 `SI` is very similar, but doesn't need to reassign `ax` at the end.
+
+#### PUSH
+
+`PUSH` can push an immediate value or a registers value into the stack. Here, `PUSH` pushes the value in `ax` onto the stack.
+```c
+else if (op = PUSH) {*--sp = ax;} // push value of ax onto stack
+```
+
+Note that we now use *pre*-incrementation, to move to the place to push `ax` to first before doing it.
+
+#### JMP
+
+`JMP <addr>` will unconditionally set the value `PC` register to `<addr>`.
+```c
+else if (op == JMP) {pc = (int *)*pc;} // jump to address
+```
+
+This works because of `op = *pc++` - we have incremented to the next slot after the `op`, which is the address to jump to - so we can then simply redefine the program counter as the current thing in memory, and this effectively jumps the counter.
+
+#### JZ/JNZ
+
+This is like a conditional `JMP`. We have two, `JZ` to jump if `ax` is 0 or `JNZ` to jump if `ax` is not zero.
+```c
+else if (op == JZ)   {pc = ax ? pc + 1 : (int *)*pc;}                   // jump if ax is zero
+else if (op == JNZ)  {pc = ax ? (int *)*pc : pc + 1;}                   // jump if ax is not zero
+```
+
+#### Function Calls
+
+When a function is called, the VM needs an isolated workspace to hold its local variables and remember where to return when it finishes. It builds this workspace on the stack.
+
+Remember we have `sp` which points to the top of the stack, and `bp` which acts as a fixed anchor for the current function. It allows the function to say 'my first arg is 2 slots above my `bp`' etc.
+
+We can implement the `CALL <addr>` instruction to call the function whose starting point is `<addr>` and `RET` to fetch the bookeeping information to return previous excecution.
+```c
+else if (op == CALL) {*--sp = (int)(pc+1); pc = (int *)*pc;} // call subroutine
+// else if (op == RET) {pc = (int *)*sp++;} // return from subroutine
+```
+
+Also, `RET` is commented out as we will replace in a second.
+
+For various reasons, we cannot introduce function calls as they are implemented in C with this VM - it is too simple. We will deal with this as we did before, by simply adding more instructions.
+
+`ENT <size>` is called when we are about to enter the function to make a 'new calling frame'. It stores the current `PC` value onto the stack, and save some space `<size>` bytes to store the local variables for the function. This is
+```c
+else if (op == ENT) {*--sp = (int)bp; bp = sp; sp = sp - *pc++;} // make new stack frame
+```
+1. `*--sp = (int)bp;`: push the *old* `bp` (the callers anchor) onto the stack. We have to save this so we don't destroy the callers workspace.
+2. `bp = sp;`: set the new `bp` to the current top of the stack. This is the anchor for our new function.
+3. `sp = sp - *pc++;`: reserve space for local variables. It reads the `<size>` argument in `pc` and moves `sp` down by that amount. This carves out a block in memory that will not be overwritten.
+
+`ADJ <size>` is to adjust the stack, to remove arguments from the frame. We need this instruction mainly because our `ADD` doesn't have enough power. So, we treat it as a special `ADD` instance
+```c
+else if (op == ADJ) {sp = sp + *pc++}
+```
+1. `sp = sp + ...`: we move the stack pointer *up* (shrinking the stack).
+2. `*pc++`: the argument here is the number of arguments that we originally pushed. If we pushed two arguments, `ADJ 2` will move `sp` up by 2, effectivelly binning those old arguments.
+
+`LEA` allows us to read arguments or local variables. Because `bp` is our anchor, everything is calculated as an offset from `bp`
+```c
+else if (op == LEA)  {ax = (int)(bp + *pc++);}
+```
+1. `*pc++`: Read the offset argument (e.g. +2 for an argument, -1 for a local variable)
+2. `bp + ...`: Add that offset to the base pointer to find the exact memory location for the variable or argument
+3. `ax = (int)...`: save the memory address to the `ax` register. Note, this does not read the value, just writes its location. We then use `LI` or `SI` to actually read the value.
+
+This can be visualised as 
+```
+sub_function(arg1, arg2, arg3);
+
+|    ....       | high address
++---------------+
+| arg: 1        |    new_bp + 4
++---------------+
+| arg: 2        |    new_bp + 3
++---------------+
+| arg: 3        |    new_bp + 2
++---------------+
+|return address |    new_bp + 1
++---------------+
+| old BP        | <- new BP
++---------------+
+| local var 1   |    new_bp - 1
++---------------+
+| local var 2   |    new_bp - 2
++---------------+
+|    ....       |  low address
+```
+
+`LEV` tears the workspace down in reverse order (reverse of how `ENT` and `CALL` built it).
+```c
+else if (op == LEV)  {sp = bp; bp = (int *)*sp++; pc = (int *)*sp++;}
+```
+1. `sp = bp;`: Instantly destroy all local variables. We abandon the reserved space.
+2. `bp = (int *)*sp++;`: pop off the old base pointer from the stack and restore it.
+3. `pc = (int *)*sp++;`: pop the return address of the stack and put it back into `pc`. The VM now goes back to the line of code after the original `CALL`.
+
+#### Mathematical instructions
+
+These are fairly obvious, so will just paste them. After a calculation is done, the argument on the stack will be popped out and the result stored in `ax`. 
+
+```c
+else if (op == OR)  ax = *sp++ | ax;
+else if (op == XOR) ax = *sp++ ^ ax;
+else if (op == AND) ax = *sp++ & ax;
+else if (op == EQ)  ax = *sp++ == ax;
+else if (op == NE)  ax = *sp++ != ax;
+else if (op == LT)  ax = *sp++ < ax;
+else if (op == LE)  ax = *sp++ <= ax;
+else if (op == GT)  ax = *sp++ >  ax;
+else if (op == GE)  ax = *sp++ >= ax;
+else if (op == SHL) ax = *sp++ << ax;
+else if (op == SHR) ax = *sp++ >> ax;
+else if (op == ADD) ax = *sp++ + ax;
+else if (op == SUB) ax = *sp++ - ax;
+else if (op == MUL) ax = *sp++ * ax;
+else if (op == DIV) ax = *sp++ / ax;
+else if (op == MOD) ax = *sp++ % ax;
+```
+
+#### Built in instructions
+
+Besides our core logic, we need an IO mechanism. `printf` is commonly used in C, but is hard to implement in this assembly, so we just steal it from C itself. We can take a few other functions as well.
+
+```c
+else if (op == EXIT) { printf("exit(%d)", *sp); return *sp;}
+else if (op == OPEN) { ax = open((char *)sp[1], sp[0]); }
+else if (op == CLOS) { ax = close(*sp);}
+else if (op == READ) { ax = read(sp[2], (char *)sp[1], *sp); }
+else if (op == PRTF) { tmp = sp + pc[1]; ax = printf((char *)tmp[-1], tmp[-2], tmp[-3], tmp[-4], tmp[-5], tmp[-6]); }
+else if (op == MALC) { ax = (int)malloc(*sp);}
+else if (op == MSET) { ax = (int)memset((char *)sp[2], sp[1], *sp);}
+else if (op == MCMP) { ax = memcmp((char *)sp[2], (char *)sp[1], *sp);}
+```
+
+We have no written a primitive assembly language that we can write programs in. For example
+
+```c
+
+    int i = 0;
+    text[i++] = IMM;
+    text[i++] = 10;
+    text[i++] = PUSH;
+    text[i++] = IMM;
+    text[i++] = 20;
+    text[i++] = ADD;
+    text[i++] = PUSH;
+    text[i++] = EXIT;
+
+    pc = text;
+
+    program();
+    return eval();
+```
+
+returns 
+
+```
+exit(30)
+```
+
+as expected
+
+## Lexer
+
+Lexical analysis 
