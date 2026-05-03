@@ -188,7 +188,7 @@ int eval() {
 signed read_file_to_buffer(int fd, int poolsize) {
     int i;
 
-    // if calloc return null pointer fail
+    // if malloc return null pointer fail
     if (!(src = old_src = malloc(poolsize))) {
         printf("could not malloc(%lld) for source area\n", poolsize);
         return -1;
