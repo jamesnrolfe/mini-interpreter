@@ -1,9 +1,8 @@
+#include <fcntl.h> // for open and file control
 #include <memory.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include <fcntl.h>  // for open and file control
 #include <unistd.h> // for read and close
 
 #define int long long // work with 64bit target
@@ -71,6 +70,7 @@ void expression(int level) {
     // do nothing
 }
 
+/** Run the program loop */
 void program() {
     next(); // get the next token, which saves to global variable
     while (token > 0) {
@@ -185,7 +185,7 @@ int eval() {
 }
 
 /* Allocate memory and read a file to src. */
-signed read_file_to_buffer(int fd, int poolsize) {
+signed read_file(int fd, int poolsize) {
     int i;
 
     // if malloc return null pointer fail
@@ -205,7 +205,7 @@ signed read_file_to_buffer(int fd, int poolsize) {
 }
 
 /* Allocate memory for the text, data and stack area, of size `poolsize`. */
-signed allocate_virtual_memory(int poolsize) {
+signed alloc_vm(int poolsize) {
     if (!(text = old_text = calloc(poolsize, 1))) {
         printf("could not calloc(%lld) for text area\n", poolsize);
         return -1;
@@ -225,7 +225,7 @@ signed allocate_virtual_memory(int poolsize) {
 }
 
 /* Initialise registers with base values. */
-void init_registers(int poolsize) {
+void init_regs(int poolsize) {
     // base pointer and stack pointer both initially point to top of stack
     bp = sp = (int *)((int)stack + poolsize);
     ax = 0;
@@ -246,7 +246,7 @@ signed main(signed argc, char **argv) {
         return -1;
     }
 
-    if (read_file_to_buffer(fd, poolsize) < 0) {
+    if (read_file(fd, poolsize) < 0) {
         printf("file read failure\n");
         return -1;
     }
@@ -254,11 +254,12 @@ signed main(signed argc, char **argv) {
     close(fd);
 
     // allocate memory for vm
-    if (allocate_virtual_memory(poolsize) < 0) {
+    if (alloc_vm(poolsize) < 0) {
         printf("memory allocation error\n");
         return -1;
     }
-    init_registers(poolsize);
+
+    init_regs(poolsize);
 
     int i = 0;
     text[i++] = IMM;

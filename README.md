@@ -16,104 +16,7 @@ There are three phases:
 
 The compiler will contain four main functions:
 
-1. `next()` for lexical analysis; get the next token, and ignore spaces, tabs etc.
-2. `program()` main entrance for the parser.
-3. `expression(level)`: parser expression; level explained later
-4. `eval()`: the entrance for the virtual machine; to interpret target instructions
-
-This looks like the following:
-
-```c
-#include <memory.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-#include <fcntl.h>  // for open and file control
-#include <unistd.h> // for read and close
-
-#define int long long // work with 64bit target
-
-int token;           // current token
-char *src, *old_src; // pointer to the source code string
-int poolsize;        // default size of text/data/stack
-int line;            // line number
-
-void next() {
-    token = *src++;
-    return;
-}
-
-void expression(int level) {
-// do nothing
-}
-
-void program() {
-    next(); // get the next token, which saves to global variable
-    while (token > 0) {
-        printf("token is: %c\n", (char)token);
-        next();
-    }
-}
-
-int eval() {
-    return 0; // do nothing yet
-}
-
-signed main(signed argc, char **argv) {
-    int i, fd;
-
-    argc--;
-    argv++;
-
-    poolsize = 256 * 1024; // arbitrary
-    line = 1;
-
-    // try and open the file
-    if ((fd = open(*argv, 0)) < 0) {
-        printf("could not open(%s)\n", *argv);
-        return -1;
-    }
-
-    // if malloc return null pointer fail
-    if (!(src = old_src = malloc(poolsize))) {
-        printf("could not malloc(%lld) for source area\n", poolsize);
-        return -1;
-    }
-
-    // read source file, returns num bytes read if success
-    if ((i = read(fd, src, poolsize - 1)) <= 0) {
-        printf("read() returned %lld\n", i);
-        return -1;
-    }
-
-    src[i] = 0; // add EOF char
-    close(fd);
-
-    program();
-    return eval();
-}
-```
-
-This has been slightly modified from the tutorial to keep up with modern standards, but the behaviour is identical.
-
-## Virtual Machines
-
-We now build a VM and design an instruction set to run on such a VM.
-
-### How does a computer work internally?
-
-We care about CPU, registers and memory. Code (or assembly instructions) are stored in memory as binary data: the CPU will retreive this information one by one and execute them. The running states of the machine is stored in registers.
-
-#### Memory
-
-Memory can be used to store data. By data we mean code. All stored in binary.
-
-Modern OS's have *virtual memory* which maps memory addresses used by a program called *virtual addresses* into physical addresses in computer memory.
-
-The benefit of this is that it can hide the details of physical memory from the programs. For example, in a 32bit machine, all the available memory addresses are `2^32 = 4G` while actual physical memory may be much smaller. 
-
-The programs usable memory is partitioned into several segments:
+The *programs* usable memory is partitioned into several segments:
 
 1. `text`: for storing code (instructions)
 2. `data`: for storing initialised data e.g. `int i = 10;` will need to use this segment
@@ -165,7 +68,7 @@ char *data;         // data segment
 So now we can allocate this memory. We will turn this into a function called `allocate_virtual_memory(int poolsize)`:
 
 ```c
-signed allocate_virtual_memory(int poolsize) {
+signed alloc_vm(int poolsize) {
     if (!(text = old_text = malloc(poolsize))) {
         printf("could not malloc(%lld) for text area\n", poolsize);
         return -1;
@@ -215,6 +118,7 @@ void init_registers(int poolsize) {
     ax = 0;
 }
 ```
+
 `PC` should point to the `main` function of the program to be interpreted, but we don't have code generation yet, so we can skip.
 
 ### Instruction Set
@@ -266,6 +170,7 @@ void eval() {
 ##### Syntax notes
 
 So this syntax is hard to follow. Let's go through whats happening here.
+
 ```c
 op = *pc++
 ```
@@ -273,13 +178,14 @@ op = *pc++
 is a common idiom in C. It does two things:
 
 1. `*pc` (dereference): It looks at the memory address `pc` is currently pointing to, and reads the value stored there. This is saved into `op`.
-2. `++` (*post*-increment): It then moves the `pc` pointer forward to the next memory location.
+2. `++` (*post*-increment): It **then** moves the `pc` pointer forward to the next memory location.
 
 > If the `++` came before, e.g. `++*pc` it would increment first, and then read.
 
 Then, for our `IMM` instruction, we effectively do the exact same thing, loading the value into `ax`.
 
 Then, for `LC` (load character), we have 
+
 ```c
 ax = *(char *)ax;
 ```
@@ -292,9 +198,11 @@ At this point, `ax` contains a number, and we want to treat that number as a mem
 `LI` is clearly very similar.
 
 `SC` is more complicated. We have 
+
 ```c
 ax = *(char *)*sp++ = ax;
 ```
+
 1. `*sp++`: just like `*pc++`, dereference and post-increment. This reads the value off the top of the stack, and moves the stack pointer down (effectively popping a character off the stack). In this VM design, the value popped off is the target memory address. Let's call this `TARGET_ADDRESS`.
 2. `(char *)TARGET_ADDRESS`: cast that popped address to a character pointer.
 3. `*(char *)TARGET_ADDRESS = ax`: dereference the target address and write the value of `ax` into it. Because we cast it as a `char *`, we only are able to write 1 byte to memory.
@@ -323,6 +231,7 @@ This works because of `op = *pc++` - we have incremented to the next slot after 
 #### JZ/JNZ
 
 This is like a conditional `JMP`. We have two, `JZ` to jump if `ax` is 0 or `JNZ` to jump if `ax` is not zero.
+
 ```c
 else if (op == JZ)   {pc = ax ? pc + 1 : (int *)*pc;}                   // jump if ax is zero
 else if (op == JNZ)  {pc = ax ? (int *)*pc : pc + 1;}                   // jump if ax is not zero
@@ -335,6 +244,7 @@ When a function is called, the VM needs an isolated workspace to hold its local 
 Remember we have `sp` which points to the top of the stack, and `bp` which acts as a fixed anchor for the current function. It allows the function to say 'my first arg is 2 slots above my `bp`' etc.
 
 We can implement the `CALL <addr>` instruction to call the function whose starting point is `<addr>` and `RET` to fetch the bookeeping information to return previous excecution.
+
 ```c
 else if (op == CALL) {*--sp = (int)(pc+1); pc = (int *)*pc;} // call subroutine
 // else if (op == RET) {pc = (int *)*sp++;} // return from subroutine
@@ -348,6 +258,7 @@ For various reasons, we cannot introduce function calls as they are implemented 
 ```c
 else if (op == ENT) {*--sp = (int)bp; bp = sp; sp = sp - *pc++;} // make new stack frame
 ```
+
 1. `*--sp = (int)bp;`: push the *old* `bp` (the callers anchor) onto the stack. We have to save this so we don't destroy the callers workspace.
 2. `bp = sp;`: set the new `bp` to the current top of the stack. This is the anchor for our new function.
 3. `sp = sp - *pc++;`: reserve space for local variables. It reads the `<size>` argument in `pc` and moves `sp` down by that amount. This carves out a block in memory that will not be overwritten.

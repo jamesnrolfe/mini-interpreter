@@ -60,7 +60,7 @@ int eval() {
     return 0; // do nothing yet
 }
 
-signed main(signed argc, char **argv) {
+unsigned main(unsigned argc, char **argv) {
     int i, fd;
 
     argc--;
@@ -158,14 +158,14 @@ int *text,          // text segment
 char *data;         // data segment
 ```
 
-> Note the `int` here - we should actually use `unsigned` because we store unsigned data, like pointers, in the `text` segment. Since we want to bootstrap our interpreter, so we don't want to introduce unsigned. Finally, the `data` is `char *` because we use it to store string literals only.
+> Note the `int` here - we should actually use `ununsigned` because we store ununsigned data, like pointers, in the `text` segment. Since we want to bootstrap our interpreter, so we don't want to introduce ununsigned. Finally, the `data` is `char *` because we use it to store string literals only.
 
 > **Bootstrapping**: a compiler that compiles itself.
 
 So now we can allocate this memory. We will turn this into a function called `allocate_virtual_memory(int poolsize)`:
 
 ```c
-signed allocate_virtual_memory(int poolsize) {
+unsigned allocate_virtual_memory(int poolsize) {
     if (!(text = old_text = malloc(poolsize))) {
         printf("could not malloc(%lld) for text area\n", poolsize);
         return -1;
